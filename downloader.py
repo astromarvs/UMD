@@ -15,7 +15,7 @@ class Logger(object):
                 "Downloading", "Destination", "Merging", "Extracting", 
                 "Finished", "100%", "Subtitles", "Writing"
             ]):
-                self.log_callback(f"DEBUG: {clean_msg}")
+                self.log_callback(f"{clean_msg}")
             
     def info(self, msg):
         if self.log_callback:
@@ -97,30 +97,17 @@ def download_youtube(url, output_path, filename, fmt, progress_hook, log_callbac
 
     # --- Step 3. Prepare yt-dlp options ---
     if fmt == "mp3":
-        filename = filename or "audio"
+        filename = (filename or "audio") + ".mp3"
+        print("File name:", filename)
         opts = {
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=mp3]/bestaudio',
             'outtmpl': os.path.join(output_path, filename),
             'quiet': False,
             'no_warnings': False,
-            'noplaylist': True,  # force single video
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192'
-            }],
+            'noplaylist': True,
             'logger': Logger(log_callback),
         }
-        if download_subtitles and subtitle_lang and subtitle_lang != "none":
-            base = os.path.splitext(os.path.join(output_path, filename))[0]
-            opts.update({
-                'writesubtitles': True,
-                'writeautomaticsub': True,
-                'subtitlesformat': 'srt',
-                'subtitleslangs': None if subtitle_lang == "all" else [subtitle_lang],
-                'outtmpl': {'default': os.path.join(output_path, filename),
-                            'subtitle': base + '.%(ext)s'}
-            })
+
     else:
         filename = (filename or "video") + ".mp4"
         opts = {

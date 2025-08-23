@@ -1,0 +1,8 @@
+certifi==2025.8.3
+charset-normalizer==3.4.3
+idna==3.10
+pytube==15.0.0
+requests==2.32.5
+tk==0.1.0
+urllib3==2.5.0
+yt-dlp==2025.8.22
