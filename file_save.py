@@ -6,9 +6,10 @@ from urllib.parse import urlparse
 import yt_dlp
 import re
 import subprocess
+import instaloader
 import platform
 
-from downloader import download_facebook, download_instagram, download_tiktok, download_youtube
+from downloader import download_facebook, download_tiktok, download_youtube, download_instagram_videos, download_instagram_images
 
 def main_window():
     def is_valid_url(url: str) -> bool:
@@ -101,10 +102,23 @@ def main_window():
         btn_frame = ttk.Frame(top)
         btn_frame.pack(pady=10)
 
-        ttk.Button(btn_frame, text="Open File", command=open_file).grid(row=0, column=0, padx=5)
-        ttk.Button(btn_frame, text="Open File Location", command=open_location).grid(row=0, column=1, padx=5)
-        ttk.Button(btn_frame, text="OK", command=ok_action).grid(row=0, column=2, padx=5)
+        # Detect file extension explicitly
+        ext = os.path.splitext(file_path)[1].lower()
+        image_exts = {
+            ".jpg", ".jpeg", ".png", ".gif", ".webp", 
+            ".bmp", ".tiff", ".tif", ".heic", ".heif"
+        }
 
+
+        col = 0
+        if ext not in image_exts:
+            ttk.Button(btn_frame, text="Open File", command=open_file).grid(row=0, column=col, padx=5)
+            col += 1
+
+        ttk.Button(btn_frame, text="Open File Location", command=open_location).grid(row=0, column=col, padx=5)
+        col += 1
+
+        ttk.Button(btn_frame, text="OK", command=ok_action).grid(row=0, column=col, padx=5)
 
     messagebox_shown = False
     # --- Progress hook ---
@@ -135,16 +149,24 @@ def main_window():
     # --- File selection ---
     def select_output_file():
         fmt = format_var.get()
-        if not fmt:
-            messagebox.showwarning("Warning", "Select a format first")
-            return
-        def_ext = ".mp3" if fmt == "mp3" else ".mp4"
-        path = filedialog.asksaveasfilename(
-            defaultextension=def_ext,
-            filetypes=[(f"{fmt.upper()} files", f"*{def_ext}")]
-        )
-        if path:
-            output_path_var.set(path)
+
+        if fmt in ["images", "mixed"]:
+            # Force folder selection
+            folder = filedialog.askdirectory(title="Select folder to save media")
+            if folder:
+                output_path_var.set(folder)
+        else:
+            # Video/audio: select single file
+            if not fmt:
+                messagebox.showwarning("Warning", "Select a format first")
+                return
+            def_ext = ".mp3" if fmt == "mp3" else ".mp4"
+            path = filedialog.asksaveasfilename(
+                defaultextension=def_ext,
+                filetypes=[(f"{fmt.upper()} files", f"*{def_ext}")]
+            )
+            if path:
+                output_path_var.set(path)
 
     # --- Download handler ---
     def handle_download():
@@ -154,7 +176,7 @@ def main_window():
             return
         output_full_path = output_path_var.get().strip()
         if not output_full_path:
-            messagebox.showerror("Error", "Please select an output file")
+            messagebox.showerror("Error", "Please select a path to save the file.")
             return
         output_folder = os.path.dirname(output_full_path)
         raw_name, raw_ext = os.path.splitext(os.path.basename(output_full_path))
@@ -173,7 +195,18 @@ def main_window():
                 elif "tiktok.com" in url:
                     download_tiktok(url, output_folder, raw_name, fmt, progress_hook=progress_hook, log_callback=log_callback)
                 elif "instagram.com" in url:
-                    download_instagram(url, output_folder, raw_name, fmt, progress_hook=progress_hook, log_callback=log_callback)
+                    selected_format = format_var.get()
+                    if selected_format == "images":
+                        folder = output_path_var.get()
+                        if not folder:
+                            messagebox.showerror("Error", "Please select a folder to save images")
+                            return
+                        # This function will download only images, even from mixed posts
+                        download_instagram_images(url, folder, progress_hook=progress_hook, log_callback=log_callback)
+
+                    elif selected_format == "mp4":
+                        download_instagram_videos(url, output_folder, raw_name, "mp4", progress_hook=progress_hook, log_callback=log_callback)
+
                 elif "facebook.com" in url:
                     download_facebook(url, output_folder, raw_name, fmt, progress_hook=progress_hook, log_callback=log_callback)
                 else:
@@ -290,14 +323,48 @@ def main_window():
         progress_label.config(text="TikTok URL ready")
 
     def handle_instagram_url():
-        format_dropdown.config(values=["mp4", "jpg", "jpeg"])
-        format_var.set("mp4")
-        enable_download_fields()
-        log_callback("Instagram URL detected")
-        progress_label.config(text="Instagram URL ready")
+        url = url_entry.get().strip()
+        L = instaloader.Instaloader(download_videos=False, save_metadata=False, download_comments=False)
+        post_shortcode = url.split("/")[-2]
+
+        try:
+            post = instaloader.Post.from_shortcode(L.context, post_shortcode)
+
+            # Determine content
+            if post.typename == "GraphSidecar":
+                nodes = list(post.get_sidecar_nodes())
+                has_video = any(node.is_video for node in nodes)
+                has_image = any(not node.is_video for node in nodes)
+            else:
+                has_video = post.is_video
+                has_image = not post.is_video
+
+            # Set format_var based on content type
+            if has_image and has_video:
+                format_var.set("images")  # Still only download images
+                format_dropdown.config(values=["images"], state='readonly')
+                log_callback("Instagram post contains videos — only images will be downloaded")
+                progress_label.config(text="Instagram post ready (images only)")
+            elif has_video:
+                format_var.set("mp4")
+                format_dropdown.config(values=["mp4"], state='readonly')
+                log_callback("Instagram video post detected")
+                progress_label.config(text="Instagram video URL ready")
+            else:
+                format_var.set("images")
+                format_dropdown.config(values=["images"], state='disabled')
+                log_callback("Instagram images URL ready")
+                progress_label.config(text="Instagram images URL ready")
+
+            enable_download_fields()
+
+        except Exception as e:
+            log_callback(f"Failed to fetch Instagram post info: {e}")
+            messagebox.showerror("Error", f"Could not fetch Instagram post: {e}")
+            disable_download_fields()
 
     def handle_facebook_url():
-        format_dropdown.config(values=["mp4", "jpg", "jpeg"])
+        format_dropdown.config(values=["mp4"])
         format_var.set("mp4")
         enable_download_fields()
         log_callback("Facebook URL detected")
@@ -308,11 +375,12 @@ def main_window():
     root.title("Universal Media Downloader")
     root.geometry("750x650")
     root.minsize(700, 600)
+    root.resizable(False, False)  
 
     # Configure style
     style = ttk.Style()
     style.configure("TFrame", background="#f0f0f0")
-    style.configure("Header.TLabel", background="#4a86e8", foreground="white", font=("Arial", 12, "bold"))
+    style.configure("Header.TLabel", background="#4a86e8", foreground="white", font=("Arial", 24, "bold"))
     style.configure("Section.TFrame", background="white", relief=tk.RAISED, borderwidth=1)
     style.configure("Button.TButton", font=("Arial", 9, "bold"))
     

@@ -3,6 +3,9 @@ import os
 import re
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 import requests
+from datetime import datetime
+import instaloader
+from PIL import Image
 
 class Logger(object):
     def __init__(self, log_callback=None):
@@ -36,33 +39,6 @@ def _fetch_info(url):
             return ydl.extract_info(url, download=False)
     except Exception:
         return None
-
-def _is_image(info):
-    """Return True if post is image-like (single photo)."""
-    if not info:
-        return False
-    ext = info.get('ext', '').lower()
-    if ext in ['jpg', 'jpeg', 'png', 'webp']:
-        return True
-    # fallback: check thumbnail or url endings
-    thumb = info.get('thumbnail') or info.get('url')
-    if thumb and any(thumb.lower().endswith(x) for x in ['.jpg', '.jpeg', '.png', '.webp']):
-        return True
-    return False
-
-def _download_image(url, path, log_callback=None):
-    """Download image directly via requests."""
-    if log_callback:
-        log_callback(f"Downloading image directly → {os.path.basename(path)}")
-    r = requests.get(url, stream=True)
-    if r.status_code == 200:
-        with open(path, 'wb') as f:
-            for chunk in r.iter_content(8192):
-                f.write(chunk)
-        if log_callback:
-            log_callback(f"Saved image → {path}")
-    else:
-        raise ValueError(f"Failed to download image. HTTP {r.status_code}")
 
 def _strip_playlist(url):
     """Remove any playlist parameters (&list=... or ?list=...) from a YouTube URL."""
@@ -166,102 +142,97 @@ def download_tiktok(url, output_path, filename, fmt, progress_hook, log_callback
             log_callback(f"Downloading TikTok → {filename}")
         ydl.download([url])
 
-def download_instagram(url, output_path, filename, fmt, progress_hook, log_callback):
-    """Download Instagram content (image or video)."""
-    info = _fetch_info(url)
-    if not info:
-        if log_callback:
-            log_callback("Could not fetch info from Instagram URL.")
-        return
-
-    if _is_image(info):
-        # Direct image download (skip yt-dlp)
-        img_url = info.get('url') or info.get('thumbnail')
-        ext = fmt if fmt in ['jpg', 'jpeg'] else 'jpg'
-        filename = (filename or info.get('title', 'image')) + "." + ext
-        image_path = os.path.join(output_path, filename)
-        _download_image(img_url, image_path, log_callback)
-    else:
-        # treat as video
-        if fmt == "mp3":
-            filename = filename or "audio"
-            opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': os.path.join(output_path, filename),
-                'quiet': False,
-                'no_warnings': False,
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192'
-                }],
-                'logger': Logger(log_callback),
-                'noplaylist': True
-            }
-        else:
-            filename = (filename or "video") + ".mp4"
-            opts = {
-                'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-                'merge_output_format': 'mp4',
-                'outtmpl': os.path.join(output_path, filename),
-                'quiet': False,
-                'no_warnings': False,
-                'logger': Logger(log_callback),
-                'noplaylist': True
-            }
-        if progress_hook:
-            opts['progress_hooks'] = [progress_hook]
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            if log_callback:
-                log_callback(f"Downloading Instagram → {filename}")
-            ydl.download([url])
-
 def download_facebook(url, output_path, filename, fmt, progress_hook, log_callback):
-    """Download Facebook content (image or video)."""
-    info = _fetch_info(url)
-    if not info:
+    """Download Facebook content as MP4 video only."""
+    filename = (filename or "video") + ".mp4"
+    opts = {
+        'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
+        'merge_output_format': 'mp4',
+        'outtmpl': os.path.join(output_path, filename),
+        'quiet': False,
+        'no_warnings': False,
+        'logger': Logger(log_callback),
+        'noplaylist': True
+    }
+    
+    if progress_hook:
+        opts['progress_hooks'] = [progress_hook]
+        
+    with yt_dlp.YoutubeDL(opts) as ydl:
         if log_callback:
-            log_callback("Could not fetch info from Facebook URL.")
-        return
+            log_callback(f"Downloading Facebook → {filename}")
+        ydl.download([url])
 
-    if _is_image(info):
-        # Direct image download (skip yt-dlp)
-        img_url = info.get('url') or info.get('thumbnail')
-        ext = fmt if fmt in ['jpg', 'jpeg'] else 'jpg'
-        filename = (filename or info.get('title', 'image')) + "." + ext
-        image_path = os.path.join(output_path, filename)
-        _download_image(img_url, image_path, log_callback)
-    else:
-        # treat as video
-        if fmt == "mp3":
-            filename = filename or "audio"
-            opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': os.path.join(output_path, filename),
-                'quiet': False,
-                'no_warnings': False,
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192'
-                }],
-                'logger': Logger(log_callback),
-                'noplaylist': True
-            }
+def download_instagram_videos(url, output_path, filename, fmt, progress_hook, log_callback):
+    """Download Instagram content as MP4 video only."""
+    filename = (filename or "video") + ".mp4"
+    opts = {
+        'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
+        'merge_output_format': 'mp4',
+        'outtmpl': os.path.join(output_path, filename),
+        'quiet': False,
+        'no_warnings': False,
+        'logger': Logger(log_callback),
+        'noplaylist': True
+    }
+    
+    if progress_hook:
+        opts['progress_hooks'] = [progress_hook]
+        
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        if log_callback:
+            log_callback(f"Downloading Instagram → {filename}")
+        ydl.download([url])
+
+def download_instagram_images(url, output_folder, progress_hook=None, log_callback=None):
+    L = instaloader.Instaloader(download_videos=False, save_metadata=False, download_comments=False)
+    shortcode = url.split("/")[-2]
+    post = instaloader.Post.from_shortcode(L.context, shortcode)
+
+    nodes = list(post.get_sidecar_nodes()) if post.typename == "GraphSidecar" else [post]
+
+    for node in nodes:
+        if getattr(node, "is_video", False):
+            continue
+
+        image_url = getattr(node, "display_url", getattr(node, "url", None))
+        original_name = os.path.basename(urlparse(image_url).path)
+        base_name, ext = os.path.splitext(original_name)
+        ext = ext.lower()
+
+        # Determine target path
+        if ext in {".webp", ".gif", ".tiff", ".bmp"}:
+            full_path_temp = os.path.join(output_folder, original_name)
+            full_path = os.path.join(output_folder, base_name + ".jpg")
+            
+            # Download original first
+            r = requests.get(image_url, stream=True)
+            r.raise_for_status()
+            with open(full_path_temp, "wb") as f:
+                for chunk in r.iter_content(1024):
+                    f.write(chunk)
+            
+            # Convert to JPG
+            img = Image.open(full_path_temp)
+            rgb_img = img.convert("RGB")
+            rgb_img.save(full_path, format="JPEG")
+            os.remove(full_path_temp)  # remove original non-JPG
+
         else:
-            filename = (filename or "video") + ".mp4"
-            opts = {
-                'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-                'merge_output_format': 'mp4',
-                'outtmpl': os.path.join(output_path, filename),
-                'quiet': False,
-                'no_warnings': False,
-                'logger': Logger(log_callback),
-                'noplaylist': True
-            }
+            # Keep as-is for .jpg, .jpeg, .png, .heic
+            full_path = os.path.join(output_folder, original_name)
+            if ext in {".jpg", ".jpeg"}:
+                L.download_pic(full_path, image_url, datetime.now())
+            else:
+                # For .png, .heic or others just download raw bytes
+                r = requests.get(image_url, stream=True)
+                r.raise_for_status()
+                with open(full_path, "wb") as f:
+                    for chunk in r.iter_content(1024):
+                        f.write(chunk)
+
         if progress_hook:
-            opts['progress_hooks'] = [progress_hook]
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            if log_callback:
-                log_callback(f"Downloading Facebook → {filename}")
-            ydl.download([url])
+            progress_hook({'status': 'downloading', 'filename': full_path})
+
+    if progress_hook and nodes:
+        progress_hook({'status': 'finished', 'filename': full_path})
