@@ -1,15 +1,31 @@
-import os
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from urllib.parse import urlparse
 import yt_dlp
-import re
+import re, os, sys
 import subprocess
 import instaloader
 import platform
 
 from downloader import download_facebook, download_tiktok, download_youtube, download_instagram_videos, download_instagram_images
+
+def resource_path(filename):
+    """Get absolute path to resource, works in dev and exe"""
+    try:
+        base_path = sys._MEIPASS  # PyInstaller sets this in --onefile mode
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, filename)
+
+def sanitize_youtube_url(url: str) -> str:
+    if "youtube.com" in url or "youtu.be" in url:
+        # Remove playlist parameters (&list=...) but keep video id
+        url = re.sub(r"&list=[^&]+", "", url)
+        url = re.sub(r"\?list=[^&]+", "", url)  # If it's only a list parameter
+        # Clean trailing ? or & if empty
+        url = url.rstrip("?&")
+    return url
 
 def main_window():
     def is_valid_url(url: str) -> bool:
@@ -109,7 +125,6 @@ def main_window():
             ".bmp", ".tiff", ".tif", ".heic", ".heif"
         }
 
-
         col = 0
         if ext not in image_exts:
             ttk.Button(btn_frame, text="Open File", command=open_file).grid(row=0, column=col, padx=5)
@@ -170,7 +185,10 @@ def main_window():
 
     # --- Download handler ---
     def handle_download():
-        url = url_entry.get().strip()
+        url = sanitize_youtube_url(url_entry.get().strip())
+        url_entry.delete(0, tk.END)
+        url_entry.insert(0, url)
+
         if not is_valid_url(url):
             messagebox.showerror("Error", "Please enter a valid URL")
             return
@@ -201,12 +219,9 @@ def main_window():
                         if not folder:
                             messagebox.showerror("Error", "Please select a folder to save images")
                             return
-                        # This function will download only images, even from mixed posts
                         download_instagram_images(url, folder, progress_hook=progress_hook, log_callback=log_callback)
-
                     elif selected_format == "mp4":
                         download_instagram_videos(url, output_folder, raw_name, "mp4", progress_hook=progress_hook, log_callback=log_callback)
-
                 elif "facebook.com" in url:
                     download_facebook(url, output_folder, raw_name, fmt, progress_hook=progress_hook, log_callback=log_callback)
                 else:
@@ -248,7 +263,10 @@ def main_window():
 
     # --- URL check ---
     def check_url():
-        url = url_entry.get().strip()
+        url = sanitize_youtube_url(url_entry.get().strip())
+        url_entry.delete(0, tk.END)
+        url_entry.insert(0, url)
+
         if not is_valid_url(url):
             messagebox.showerror("Error", "Please enter a valid URL first.")
             return
@@ -258,7 +276,6 @@ def main_window():
         subtitle_dropdown.grid_remove()
         subtitle_check.grid_remove()
         progress_label.config(text="Checking URL...")
-        # Clear previous logs when checking a new URL
         clear_logs()
         root.update()
 
@@ -371,8 +388,20 @@ def main_window():
         progress_label.config(text="Facebook URL ready")
 
     # --- GUI Layout ---
+
     root = tk.Tk()
     root.title("Universal Media Downloader")
+
+    # Try to set icon if available
+    try:
+        icon_file = resource_path("UMD.ico")
+        if os.path.exists(icon_file):
+            root.iconbitmap(icon_file)
+        else:
+            print("Warning: UMD.ico not found, using default icon.")
+    except Exception as e:
+        print(f"Could not set icon: {e}")
+
     root.geometry("750x650")
     root.minsize(700, 600)
     root.resizable(False, False)  

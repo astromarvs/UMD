@@ -1,0 +1,4 @@
+pyinstaller --onefile --noconsole --icon=UMD.ico ^
+  --add-data "UMD.ico;." ^
+  --add-binary "D:\Codes\Personal\UMD\ffmpeg.exe;." ^
+  main.py
