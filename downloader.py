@@ -1,4 +1,5 @@
 import yt_dlp
+import sys
 import os
 import re
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -6,6 +7,19 @@ import requests
 from datetime import datetime
 import instaloader
 from PIL import Image
+
+# --- Added: resource_path for PyInstaller bundling ---
+def resource_path(filename):
+    """Get path to bundled resource, works for dev and PyInstaller exe."""
+    if getattr(sys, 'frozen', False):  # running as a bundle
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(__file__)
+    return os.path.join(base_path, filename)
+
+# --- Added: ffmpeg path for yt-dlp ---
+ffmpeg_path = resource_path("ffmpeg.exe")
+
 
 class Logger(object):
     def __init__(self, log_callback=None):
@@ -32,6 +46,7 @@ class Logger(object):
         if self.log_callback:
             self.log_callback(f"ERROR: {re.sub(r'\\x1b\\[[0-9;]*[mK]', '', msg)}")
 
+
 def _fetch_info(url):
     """Get metadata only (no download)."""
     try:
@@ -39,6 +54,7 @@ def _fetch_info(url):
             return ydl.extract_info(url, download=False)
     except Exception:
         return None
+
 
 def _strip_playlist(url):
     """Remove any playlist parameters (&list=... or ?list=...) from a YouTube URL."""
@@ -52,15 +68,14 @@ def _strip_playlist(url):
     cleaned_url = urlunparse(parsed._replace(query=clean_query))
     return cleaned_url
 
+
 def download_youtube(url, output_path, filename, fmt, progress_hook, log_callback, subtitle_lang, download_subtitles):
     """Download YouTube video or audio (mp3), ignoring playlists completely."""
     
-    # --- Step 1. Clean URL (strip playlist) ---
     url = _strip_playlist(url)
     if log_callback:
         log_callback(f"Sanitized YouTube URL → {url}")
 
-    # --- Step 2. Optional pre-check (for logging only) ---
     try:
         with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -71,10 +86,8 @@ def download_youtube(url, output_path, filename, fmt, progress_hook, log_callbac
         if log_callback:
             log_callback("Could not verify playlist info — proceeding with noplaylist=True.")
 
-    # --- Step 3. Prepare yt-dlp options ---
     if fmt == "mp3":
         filename = (filename or "audio") + ".mp3"
-        print("File name:", filename)
         opts = {
             'format': 'bestaudio[ext=mp3]/bestaudio',
             'outtmpl': os.path.join(output_path, filename),
@@ -82,8 +95,8 @@ def download_youtube(url, output_path, filename, fmt, progress_hook, log_callbac
             'no_warnings': False,
             'noplaylist': True,
             'logger': Logger(log_callback),
+            'ffmpeg_location': ffmpeg_path,  # added
         }
-
     else:
         filename = (filename or "video") + ".mp4"
         opts = {
@@ -92,8 +105,9 @@ def download_youtube(url, output_path, filename, fmt, progress_hook, log_callbac
             'outtmpl': os.path.join(output_path, filename),
             'quiet': False,
             'no_warnings': False,
-            'noplaylist': True,  # force single video
+            'noplaylist': True,
             'logger': Logger(log_callback),
+            'ffmpeg_location': ffmpeg_path,  # added
         }
         if download_subtitles:
             if subtitle_lang == "all":
@@ -113,7 +127,6 @@ def download_youtube(url, output_path, filename, fmt, progress_hook, log_callbac
     if progress_hook:
         opts['progress_hooks'] = [progress_hook]
 
-    # --- Step 4. Execute download ---
     with yt_dlp.YoutubeDL(opts) as ydl:
         if log_callback:
             log_callback(f"Downloading YouTube → {filename}")
@@ -122,7 +135,6 @@ def download_youtube(url, output_path, filename, fmt, progress_hook, log_callbac
 
 def download_tiktok(url, output_path, filename, fmt, progress_hook, log_callback):
     """Download TikTok video."""
-    # TikTok only supports video format
     filename = (filename or "video") + ".mp4"
     opts = {
         'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
@@ -131,9 +143,9 @@ def download_tiktok(url, output_path, filename, fmt, progress_hook, log_callback
         'quiet': False,
         'no_warnings': False,
         'logger': Logger(log_callback),
-        'noplaylist': True
+        'noplaylist': True,
+        'ffmpeg_location': ffmpeg_path,  # added
     }
-    
     if progress_hook:
         opts['progress_hooks'] = [progress_hook]
 
@@ -141,6 +153,7 @@ def download_tiktok(url, output_path, filename, fmt, progress_hook, log_callback
         if log_callback:
             log_callback(f"Downloading TikTok → {filename}")
         ydl.download([url])
+
 
 def download_facebook(url, output_path, filename, fmt, progress_hook, log_callback):
     """Download Facebook content as MP4 video only."""
@@ -152,9 +165,9 @@ def download_facebook(url, output_path, filename, fmt, progress_hook, log_callba
         'quiet': False,
         'no_warnings': False,
         'logger': Logger(log_callback),
-        'noplaylist': True
+        'noplaylist': True,
+        'ffmpeg_location': ffmpeg_path,  # added
     }
-    
     if progress_hook:
         opts['progress_hooks'] = [progress_hook]
         
@@ -162,6 +175,7 @@ def download_facebook(url, output_path, filename, fmt, progress_hook, log_callba
         if log_callback:
             log_callback(f"Downloading Facebook → {filename}")
         ydl.download([url])
+
 
 def download_instagram_videos(url, output_path, filename, fmt, progress_hook, log_callback):
     """Download Instagram content as MP4 video only."""
@@ -173,9 +187,9 @@ def download_instagram_videos(url, output_path, filename, fmt, progress_hook, lo
         'quiet': False,
         'no_warnings': False,
         'logger': Logger(log_callback),
-        'noplaylist': True
+        'noplaylist': True,
+        'ffmpeg_location': ffmpeg_path,  # added
     }
-    
     if progress_hook:
         opts['progress_hooks'] = [progress_hook]
         
@@ -183,6 +197,7 @@ def download_instagram_videos(url, output_path, filename, fmt, progress_hook, lo
         if log_callback:
             log_callback(f"Downloading Instagram → {filename}")
         ydl.download([url])
+
 
 def download_instagram_images(url, output_folder, progress_hook=None, log_callback=None):
     L = instaloader.Instaloader(download_videos=False, save_metadata=False, download_comments=False)
@@ -200,31 +215,23 @@ def download_instagram_images(url, output_folder, progress_hook=None, log_callba
         base_name, ext = os.path.splitext(original_name)
         ext = ext.lower()
 
-        # Determine target path
         if ext in {".webp", ".gif", ".tiff", ".bmp"}:
             full_path_temp = os.path.join(output_folder, original_name)
             full_path = os.path.join(output_folder, base_name + ".jpg")
-            
-            # Download original first
             r = requests.get(image_url, stream=True)
             r.raise_for_status()
             with open(full_path_temp, "wb") as f:
                 for chunk in r.iter_content(1024):
                     f.write(chunk)
-            
-            # Convert to JPG
             img = Image.open(full_path_temp)
             rgb_img = img.convert("RGB")
             rgb_img.save(full_path, format="JPEG")
-            os.remove(full_path_temp)  # remove original non-JPG
-
+            os.remove(full_path_temp)
         else:
-            # Keep as-is for .jpg, .jpeg, .png, .heic
             full_path = os.path.join(output_folder, original_name)
             if ext in {".jpg", ".jpeg"}:
                 L.download_pic(full_path, image_url, datetime.now())
             else:
-                # For .png, .heic or others just download raw bytes
                 r = requests.get(image_url, stream=True)
                 r.raise_for_status()
                 with open(full_path, "wb") as f:
